@@ -1,25 +1,28 @@
-import Network.KwaveWrapper.Utilities as u
+import Network.DAS_COLE.Utilities as u
 from Trainer import Trainer
-from Network.POCSNet import POCSNet
+from Network.POCSNet_DAS_COLE import POCSNet
 from DataLogger.DataLogger import DataLogger
 from Data.DataLoader import PACTDataset
 
 import torch
 
-device = "cuda:2"
+device = "cuda"
 doTest = True
 NR_OF_EPOCHS = 15
 
 startItter = -1
 itters = 5
-NNgrid_Nx = 856
-NNgrid_FOV = [-75e-3, 75e-3]
-Kgrid_Nx = 2048
-Kgrid_FOV = [-111e-3, 111e-3]
+Nx = 856
+FOVx = [-75e-3, 75e-3]
+super_grid_Nx = 2048
 Nt = 4000
 dt = 25e-9
+t0 = 0
+Ns = 512 #full_array sensor amount
+Ns_real = 128 #actual array sensor amount
+Ns_interpolation_factor = 2 
 
-data_path = r"Data\GreedyDataGT.h5"
+data_path = r"Data\Data\placeHolder.h5"
 
 full_sensor_params = {
     "layout": "full_circular",
@@ -29,12 +32,12 @@ full_sensor_params = {
     "end": -2*3.14
 }
 S = u.SensorArray(512, params = full_sensor_params)
-NNgrid = u.Grid(NNgrid_Nx, NNgrid_FOV, NNgrid_Nx, NNgrid_FOV, Nt, dt)
-Kgrid = u.Grid(Kgrid_Nx, Kgrid_FOV, Kgrid_Nx, Kgrid_FOV, Nt, dt)
-S_real, S_art = u.splitArray(S, 128)
+grid = u.Grid(Nx, FOVx, Nx, FOVx, Nt, dt)
+super_grid = u.Grid(super_grid_Nx, FOVx, super_grid_Nx, FOVx, Nt, dt)
+S_real, S_art = S.SplitArray(Ns_real)
 
 data = PACTDataset(data_path, S_real, S_art)
-network = POCSNet(S_real, S_art, Kgrid, NNgrid, itters, device).to(device)
+network = POCSNet(itters, grid, super_grid, S_real, S_art, Ns_interpolation_factor).to(device)
 
 dl = DataLogger(type="test")
 criterion = {
@@ -50,7 +53,7 @@ if startItter == -1:
 
 for ii in range(itters):
     print("============TRAINING ITTERATION %i===============" % ii)
-    for epoch in range(NR_of_EPOCHS):
+    for epoch in range(NR_OF_EPOCHS):
         print("============EPOCH %i==========================" % ii)
         print("Training Step...")
         trainer.step(network, ii, 'train')
@@ -61,7 +64,7 @@ for ii in range(itters):
         print("Validation Step...")
         trainer.step(network, ii, 'val')
 
-    trainer.saveStep(self, network, ii)
+    trainer.saveStep(network, ii)
     torch.save(network.load_state_dict(), "NetworkSaves\\network_itter%i.pt" % ii)
 
         

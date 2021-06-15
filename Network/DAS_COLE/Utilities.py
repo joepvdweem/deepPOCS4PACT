@@ -110,6 +110,23 @@ class SensorArray(torch.nn.Module):
 
         return realArray, artArray
         
+    
+    def getSuper(self, sensor_scale_factor):
+        super_pos = self.sensor_pos.T.unsqueeze(0)
+        super_pos = torch.nn.functional.interpolate(super_pos, scale_factor=sensor_scale_factor, mode='linear') 
+        super_pos = super_pos.squeeze(0).T
+        superArray = SensorArray(self.Ns * sensor_scale_factor, {"layout": "subarray",
+            "sensor_pos": super_pos,
+            "indexes": 0,
+            "t0": self.t0})
+        
+        return superArray;
+    
+    def getIdx(self):
+        return self.indexes
+    
+    
+    
 def generateFOVmask(sensors, grid, c):
     # map outer points of sensor
     # make circles around these outer points
@@ -125,6 +142,41 @@ def generateFOVmask(sensors, grid, c):
 
     return mask
 
+
+class Scaler(torch.nn.Module):
+    
+    def __init__(self, super_grid, sensor_scale_factor):
+        """
+        A scaler that interpolates the data for the forward and backward transform
+
+        Parameters
+        ----------
+        super_grid : the size of the dense grid
+        sensor_scale_factor : the scale factor for the sensor axis
+        """
+        super(Scaler, self).__init__()
+        self.super_grid = super_grid
+        self.sensor_scale_factor = sensor_scale_factor
+        
+    def scaleForward(self, x):
+        x = x.unsqueeze(1) #generate a "color channel" 
+        #interpolate the image
+        x = torch.nn.functional.interpolate(x, size = (self.super_grid.Nx , self.super_grid.Nx), mode="bilinear")
+        x = x.squeeze(1) #remove the "color channel"
+        return x
+
+    def scaleBackward(self, x):
+        # transform from (Nb, Ns, Nt) --> (Nb, Nt, Ns)
+        x = x.permute(0, 2, 1) 
+        
+        # interpolate on the last axis thus the sensor axis by sensor_scale_factor
+        x = torch.nn.functional.interpolate(x, scale_factor=[self.sensor_scale_factor], mode='linear')
+        
+        # transform back
+        x = x.permute(0, 2, 1)
+        return x
+    
+    
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import os

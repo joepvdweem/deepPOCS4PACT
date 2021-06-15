@@ -9,6 +9,17 @@ from .ProxLayers import UNET
 class POCSNet(nn.Module):
 
     def __init__(self, S_real, S_art, Kgrid, NNgrid, itters, device):
+        """
+        
+        Parameters
+        ----------
+        S_real : 
+        S_art : 
+        Kgrid : 
+        NNgrid : 
+        itters : 
+        device : 
+        """
         super(POCSNet, self).__init__()
         
         self.S_real = S_real
@@ -29,32 +40,56 @@ class POCSNet(nn.Module):
         self.proxLayers["N_end"] = UNET.UNet(1, 1)
 
     def forward(self, x):
+        """
+        runs the entire network (so each itteration)
+
+        Parameters
+        ----------
+        x : the input data in the sensor domain
+
+        Returns
+        -------
+        y_n : output of the n'th step
+
+        """
+        # get first step
         y_0 = self.firstStep(x)
         y_n = y_0
         for i in range(self.itters):
+            #run pocs step
             y_n = self.POCSStep(y_n, i) #Visually feasable step
+            
+            #data consistency step
             y_n = y_n + y_0 #physically plausible step
 
+        # run last step
         y_n = self.lastStep(y_n)
+        
         return y_n
 
     @torch.enable_grad()
     def proxStep(self, x, itter):
         """
-        Only runs the proximal step for itter
+        runs only a proximal step, mainly for training purposes
+        Parameters
+        ----------
+        x : input data in the image domain
+        itter : the network used in itteration itter
 
-        y_prev = y_{itter-1}
-        y_new = y_itter
+        Returns
+        -------
+        x : proximally mapped input data in the image domain
         """
+        
         x = self.proxLayers["N_%i" % itter](x)
         return x
     
     @torch.no_grad()
     def filterStep(self, x):
         """
-        Filters the signal in between the two steps
-
+        filters the data according to the filter.
         """
+        
         x = x.permute(1, 0, 2)
         x = F.conv1d(x, self.filter, padding=self.filterPadding)
         x = x.permute(1, 0, 2)
@@ -63,7 +98,17 @@ class POCSNet(nn.Module):
     @torch.no_grad()
     def POCSStep(self, x, itter):
         """
-        The POCSStep
+        runs the entire pocs step
+
+        Parameters
+        ----------
+        x : output of previous layer
+        itter : itter number
+
+        Returns
+        -------
+        y_n : output of current layer
+
         """
         # N(.)
         x = self.proxStep(x, itter) 
@@ -75,13 +120,13 @@ class POCSNet(nn.Module):
 
         # \Phi
         x = self.model.calculateBackward(x)
-        x = self.scaler.scaleBackward(x)
+        y_n = self.scaler.scaleBackward(x)
 
-        return x
+        return y_n
 
     def firstStep(self, x):
         """
-        The first step only, basically only \Psi^
+        The first step only, only \Psi^
         """
         x = self.FirstStepModel.calculateBackward(x)
         x = self.scaler.scaleBackward(x)
@@ -89,7 +134,7 @@ class POCSNet(nn.Module):
 
     def lastStep(self, x):
         """
-        The first step only, basically only N(.)
+        The last step only, basically only N(.)
         """
         x = self.proxLayers["N_end"](x)
         return x

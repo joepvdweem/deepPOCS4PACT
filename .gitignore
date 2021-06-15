@@ -1,0 +1,6 @@
+Data/Data/
+logs/
+NetworkSaves/
+__pycache__/
+Network/KwaveWrapper/inputFile.h5
+Network/KwaveWrapper/outputFile.h5

@@ -1,0 +1,185 @@
+import torch
+import numpy as np
+
+#god parameters
+NT_RECONSTRUCT_ERROR = 4; #extra time points eaten by the reconstruction methods
+
+class Grid(torch.nn.Module):
+    
+    def __init__(self, Nx, xrange, Ny, yrange, Nt, dt, Nz=0, zrange=0, c=1500):
+        super(Grid, self).__init__()
+
+        self.Nx = Nx
+        self.xrange = xrange
+        self.x  = torch.linspace(xrange[0], xrange[1], Nx)
+        self.dx = abs(self.xrange[0] - self.xrange[1]) / self.Nx
+        
+        self.Ny = Ny
+        self.yrange = yrange
+        self.y  = torch.linspace(yrange[0], yrange[1], Ny)
+        self.dy = abs(self.yrange[0] - self.yrange[1]) / self.Ny
+        
+        self.Nz = Nz
+        self.zrange = zrange
+        if self.Nz != 0:
+            self.z = torch.linspace(zrange[0], zrange[1], Nz)
+            self.dz = abs(self.zrange[0] - self.zrange[1]) / self.Nz
+        else:
+            self.z = torch.tensor(0.);
+            self.dz = 0
+            
+        self.Nt = Nt
+        self.dt = dt
+        self.t = torch.arange(0, Nt)*dt
+        self.t_max = (Nt - NT_RECONSTRUCT_ERROR)*dt;
+        self.t_min = 0;
+        
+        self.c = c
+            
+        self.x = torch.nn.Parameter(self.x, requires_grad = False)
+        self.y = torch.nn.Parameter(self.y, requires_grad = False)
+        self.z = torch.nn.Parameter(self.z, requires_grad = False)
+        self.t = torch.nn.Parameter(self.t, requires_grad = False)
+        
+      
+        
+    def getGridAxis(self):
+        return (self.x, self.y, self.z)
+        
+    def getFullGrid(self, dims = 2):
+        if dims == 2:
+            xx, yy = torch.meshgrid(self.x, self.y)
+            return torch.stack([xx, yy], -1)
+        else:
+            pass
+        
+    def getDims(self):
+        if self.Nz == 0:
+            return (self.Nx, self.Ny, 1)
+        else:
+            return (self.Nx, self.Ny, self.Nz)
+    
+    def getRes(self):
+        if self.Nz == 0:
+            return (self.dx, self.dy, 1e-4)
+        else:
+            return (self.dx, self.dy, self.dz)
+
+std_sensor_params = {
+    "layout": "full_circular",
+    "phi": 0,
+    "R": 110e-3}
+
+class SensorArray:
+    def __init__(self, Ns, params = std_sensor_params):
+        self.Ns = Ns
+        
+        if params["layout"] == "full_circular":
+            phi = np.arange(0, 2*3.141592, 2*3.141592/self.Ns) + params["phi"]
+            self.sensor_pos = np.stack([params["R"] * np.cos(phi), params["R"] * np.sin(phi)], -1)
+        elif params["layout"] == "partial_circular":
+            phi = np.linspace(params["phi_start"], params["phi_end"], Ns)
+            self.sensor_pos = np.stack([params["R"] * np.cos(phi), params["R"] * np.sin(phi)], -1)
+        elif params["layout"] == "split":
+            self.sensor_pos = params["sensor_pos"]
+            self.Ns = len(self.sensor_pos)
+            self.idx = params["idx"]
+        
+        else:
+            print("invalid_layout")
+            
+        self.mask_type = 0
+        
+        # self.waveform = torch.tensor(waveform, requires_grad = False, dtype=torch.float32)
+        # self.waveform = torch.nn.Parameter(self.waveform, requires_grad = False)
+    
+    def getSensorArray(self):
+        return self.sensor_pos
+    
+    def getMask(self, grid):
+        
+        res = np.array(grid.getRes()[:2])
+        
+        sensor_pos = np.round(self.sensor_pos / res).astype(np.int64)
+        sensor_pos[:, 0] = sensor_pos[:, 0] + grid.Nx//2
+        sensor_pos[:, 1] = sensor_pos[:, 1] + grid.Ny//2
+        
+        sensor_mask = np.zeros(grid.getDims())
+        sensor_mask[sensor_pos[:, 0], sensor_pos[:, 1]] = 1
+        
+        sensor_idx = np.nonzero(np.reshape(sensor_mask, [-1]))
+        
+        print(sensor_idx[0].shape)
+
+        return (sensor_mask, sensor_idx[0])
+    
+    def getWaveform(self):
+        return self.waveform
+    
+    def getWaveformShape(self):
+        return self.waveform.size()
+
+    def getIdx(self):
+        return self.idx
+
+class Scaler(torch.nn.Module):
+    def __init__(self, Kgrid, NNgrid):
+        super(Scaler, self).__init__()
+        self.Kgrid = Kgrid
+        self.NNgrid = NNgrid
+        self.subGridNx = np.round((Kgrid.xrange[1] - Kgrid.xrange[0]) / (NNgrid.dx * 2)) * 2 # round to nearest even number
+        self.subGridNx = self.subGridNx.astype(np.int64)
+        self.padAmount = (self.subGridNx - NNgrid.Nx)
+
+    def scaleForward(self, x):
+        x = torch.pad(x, [self.padAmount, self.padAmount]).unsqueeze(1) # adds zeros to match the FOV of the other grid
+        x = torch.nn.functional.interpolate(x, size = (self.Kgrid.Nx , self.Kgrid.Nx), mode="bicubic")
+        return x
+
+    def scaleBackward(self, x):
+        x = x.unsqueeze(1)
+        x = torch.nn.functional.interpolate(x, size = (self.subGridNx , self.subGridNx), mode="bicubic").squeeze(1)
+        x = x[:,self.padAmount : (self.subGridNx - self.padAmount),  self.padAmount : ( self.subGridNx -  self.padAmount)] #un-pad the image
+        return x
+
+def splitArray(S, Ns):
+    sensor_array = S.getSensorArray()
+    S_real_params = {
+        "sensor_pos": sensor_array[:Ns],
+        "layout": "split",
+        "idx": np.arange(0, Ns)
+    }
+    S_art_params = S_real_params.copy()
+    S_art_params["sensor_pos"] = sensor_array[Ns:]
+    S_art_params["idx"] =  np.arange(Ns, len(sensor_array))
+
+    S_real = SensorArray(0, params=S_real_params)
+    S_art = SensorArray(0, params=S_art_params)
+
+    return S_real, S_art
+    
+if __name__ == '__main__':
+    S = SensorArray(256)
+    g = Grid(512, [-111e-3, 111e-3], 512, [-111e-3, 111e-3], 4000, 25e-9)
+    a = S.getMask(g)
+
+    S_real, S_art = splitArray(S, 64)
+    
+    a1 = S_real.getMask(g)
+    print(a)
+
+    import matplotlib.pyplot as plt
+    import os
+    os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+        
+    plt.imshow(np.squeeze(a1[0]))
+
+    plt.show()
+
+
+        
+        
+        
+        
+        
+    

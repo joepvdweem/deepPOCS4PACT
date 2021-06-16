@@ -120,7 +120,7 @@ class SensorArray(torch.nn.Module):
             "indexes": 0,
             "t0": self.t0})
         
-        return superArray;
+        return superArray
     
     def getIdx(self):
         return self.indexes

@@ -10,19 +10,19 @@ device = "cuda"
 doTest = True
 NR_OF_EPOCHS = 15
 
-startItter = -1
-itters = 5
-Nx = 856
-FOVx = [-75e-3, 75e-3]
-super_grid_Nx = 2048
-Nt = 4000
-dt = 25e-9
-t0 = 0
+startItter = 0 #-1 means first step included
+itters = 5 #max itters needed
+Nx = 856 # grid for the neural network
+FOVx = [-75e-3, 75e-3] # the fov for the images
+super_grid_Nx = 2048 # the super sampled grid
+Nt = 4000 # time points
+dt = 25e-9 # sample time
+t0 = 0 # delay
 Ns = 512 #full_array sensor amount
 Ns_real = 128 #actual array sensor amount
-Ns_interpolation_factor = 2 
+Ns_interpolation_factor = 2 #amount of interpolation for DAS
 
-data_path = r"Data\Data\placeHolder.h5"
+data_path = r"Data\Data\placeholder.h5"
 
 full_sensor_params = {
     "layout": "full_circular",
@@ -31,9 +31,9 @@ full_sensor_params = {
     "start": 0,
     "end": -2*3.14
 }
-S = u.SensorArray(512, params = full_sensor_params)
-grid = u.Grid(Nx, FOVx, Nx, FOVx, Nt, dt)
-super_grid = u.Grid(super_grid_Nx, FOVx, super_grid_Nx, FOVx, Nt, dt)
+S = u.SensorArray(Ns, params = full_sensor_params).to(device)
+grid = u.Grid(Nx, FOVx, Nx, FOVx, Nt, dt).to(device)
+super_grid = u.Grid(super_grid_Nx, FOVx, super_grid_Nx, FOVx, Nt, dt).to(device)
 S_real, S_art = S.SplitArray(Ns_real)
 
 data = PACTDataset(data_path, S_real, S_art)
@@ -56,13 +56,13 @@ for ii in range(itters):
     for epoch in range(NR_OF_EPOCHS):
         print("============EPOCH %i==========================" % ii)
         print("Training Step...")
-        trainer.step(network, ii, 'train')
+        trainer.Step(network, ii, 'train')
 
         print("Testing Step...")
-        trainer.step(network, ii, 'test')
+        trainer.Step(network, ii, 'test')
         
         print("Validation Step...")
-        trainer.step(network, ii, 'val')
+        trainer.Step(network, ii, 'val')
 
     trainer.saveStep(network, ii)
     torch.save(network.load_state_dict(), "NetworkSaves\\network_itter%i.pt" % ii)

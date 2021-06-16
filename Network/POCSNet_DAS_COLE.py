@@ -29,11 +29,11 @@ class POCSNet(nn.Module):
         
         self.scaler = Scaler(super_grid, sensor_scale_factor)
         
-        self.forwardModel_real = DasModule(self.grid, self.S_real.getSuper(sensor_scale_factor))
-        self.forwardModel_art = DasModule(self.grid, self.S_art.getSuper(sensor_scale_factor))
+        self.forwardModel_real = RevDasModule(self.super_grid, self.S_real)
+        self.forwardModel_art = RevDasModule(self.super_grid, self.S_art)
         
-        self.backwardModel_real = RevDasModule(self.super_grid, self.S_art)
-        self.backwardModel_art = RevDasModule(self.super_grid, self.S_real)
+        self.backwardModel_real = DasModule(self.grid, self.S_real.getSuper(sensor_scale_factor))
+        self.backwardModel_art = DasModule(self.grid, self.S_art.getSuper(sensor_scale_factor))
         
         self.proxLayers = nn.ModuleDict()
 
@@ -85,9 +85,10 @@ class POCSNet(nn.Module):
         -------
         x : proximally mapped input data in the image domain
         """
-        
+        x = x.unsqueeze(1) #add "color" channel
         x = self.proxLayers["N_%i" % itter](x)
-        
+        x = x.squeeze(1)#add "color" channel
+
         if self.getDC:
             
             dc = "NOT IMPLENTED"
@@ -119,7 +120,7 @@ class POCSNet(nn.Module):
 
         Returns
         -------
-        y_n : output of current layer
+        x : output of current layer
 
         """
         # N(.)
@@ -127,21 +128,21 @@ class POCSNet(nn.Module):
 
         # \Theta
         x = self.scaler.scaleForward(x)
-        x = self.model.calculateForward(x)
+        x = self.forwardModel_art(x)
         x = self.filterStep(x)
 
         # \Phi
-        x = self.model.calculateBackward(x)
-        y_n = self.scaler.scaleBackward(x)
+        x = self.scaler.scaleBackward(x)
+        x = self.backwardModel_art(x)
 
-        return y_n
+        return x
 
     def firstStep(self, x):
         """
-        The first step only, only \Psi^
+        The first step only \Psi^
         """
-        x = self.FirstStepModel.calculateBackward(x)
         x = self.scaler.scaleBackward(x)
+        x = self.backwardModel_real(x)
         return x
 
     def lastStep(self, x):

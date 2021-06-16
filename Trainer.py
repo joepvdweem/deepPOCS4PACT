@@ -43,7 +43,7 @@ class Trainer(nn.Module):
         
         #shuffle the data for training and testing but not for validating
         if split == "val":
-            indexes = np.arrange(self.dataset.getLength(split))    
+            indexes = np.arange(self.dataset.getLength(split))    
         else:
             indexes = getShuffledIndexes(self.dataset.getLength(split))
         
@@ -52,8 +52,8 @@ class Trainer(nn.Module):
         for ii in indexes:
             #get data
             item = self.dataset.getItem(ii, split, itter)
-            y_n = torch.tensor(item["y_n"], device=self.device).unsqueeze(0)
-            GT = torch.tensor(item["GT"], device=self.device).unsqueeze(0)
+            y_n = torch.tensor(item["y_n"], device=self.device, dtype=torch.float32).unsqueeze(0)
+            GT = torch.tensor(item["GT"], device=self.device, dtype=torch.float32).unsqueeze(0)
             
             #Run Network Proximal step for training
             y_hat = network.proxStep(y_n, itter)
@@ -71,7 +71,7 @@ class Trainer(nn.Module):
                 self.dataLogger.saveImages(item, y_hat.detach().cpu().numpy(), ii)
 
             #append datalogger data
-            self.dataLogger.endOfBatch(loss)
+            self.dataLogger.endOfBatch(y_n, y_hat, loss, itter, split)
             indexes.set_description(self.dataLogger.getProgbarDescription(split))
 
             #debugging
@@ -96,8 +96,8 @@ class Trainer(nn.Module):
             for ii in indexes:
                 #getitem
                 item = self.dataset.getItem(ii, split, itter)
-                y_0 = torch.tensor(item["y_0"], device=self.device).unsqueeze(0)
-                y_n = torch.tensor(item["y_n"], device=self.device).unsqueeze(0)
+                y_0 = torch.tensor(item["y_0"], device=self.device, dtype=torch.float32).unsqueeze(0)
+                y_n = torch.tensor(item["y_n"], device=self.device, dtype=torch.float32).unsqueeze(0)
 
                 #run it through an entire pocs step (so network + forward/backward pass)
                 y_hat = network.POCSStep(y_n, itter)
@@ -107,7 +107,7 @@ class Trainer(nn.Module):
                 
                 #save item in dataset
                 saveItem = {
-                    "data": y_hat.cpu().numpy()
+                    "y_n": y_hat.cpu().numpy()
                 } 
                 self.dataset.setItem(saveItem, ii, split, itter)
             
@@ -131,14 +131,14 @@ class Trainer(nn.Module):
             for ii in indexes:
                 #getitem
                 item = self.dataset.getItem(ii, split, -1)
-                x = torch.tensor(item["x"], device=self.device).unsqueeze(0)
+                x = torch.tensor(item["x"], device=self.device, dtype=torch.float32).unsqueeze(0)
                 
                 #run first step
                 y_0 = network.firstStep(x)
                 
                 #save item
                 saveItem = {
-                    "data": y_0.cpu().numpy()
+                    "y_0": y_0.cpu().numpy()
                 } 
                 self.dataset.setItem(saveItem, ii, split, -1)
                 

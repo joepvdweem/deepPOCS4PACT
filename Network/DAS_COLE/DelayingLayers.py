@@ -2,7 +2,7 @@
 """
 Created on Fri Feb 12 09:55:35 2021
 
-@author: Joepi
+@author: Joep
 """
 
 import torch

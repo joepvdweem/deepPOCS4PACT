@@ -2,7 +2,7 @@
 """
 Created on Tue Jan 26 11:37:30 2021
 
-@author: Joepi
+@author: Joep
 """
 
 from .Wrapper import kWaveWrapper
